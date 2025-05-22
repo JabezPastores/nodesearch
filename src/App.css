@@ -93,3 +93,17 @@ canvas {
 .weight-dialog button:last-child {
   background-color: #f44336;
 }
+
+.tool-button.simulate {
+  background-color: #9c27b0;
+  color: white;
+}
+
+.tool-button.simulate:hover:not(:disabled) {
+  background-color: #7b1fa2;
+}
+
+.tool-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
