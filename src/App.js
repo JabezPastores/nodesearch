@@ -18,13 +18,23 @@ function App() {
   const [currentNode, setCurrentNode] = useState(null);
   const [algorithm, setAlgorithm] = useState('astar'); // 'astar', 'bfs', 'dfs'
   const [isPaused, setIsPaused] = useState(false);
+  const [nodeValue, setNodeValue] = useState('');
+  const [showNodeValueInput, setShowNodeValueInput] = useState(false);
+  const [nodeToEdit, setNodeToEdit] = useState(null);
   const canvasRef = useRef(null);
   const simulationRef = useRef(null);
 
   const heuristic = (nodeA, nodeB) => {
     const dx = nodeA.x - nodeB.x;
     const dy = nodeA.y - nodeB.y;
-    return Math.sqrt(dx * dx + dy * dy);
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // If nodeA has a value, use it to adjust the heuristic
+    const nodeValue = nodeA.value ? parseInt(nodeA.value) || 0 : 0;
+    
+    // The higher the value, the more "costly" it is to visit this node
+    // This will make the A* algorithm prefer paths through nodes with lower values
+    return distance + nodeValue;
   };
 
   const runAStar = async () => {
@@ -95,15 +105,26 @@ function App() {
                     (conn.from === neighborId && conn.to === currentId)
           );
 
-          const tentativeG = (gScore[currentId] || 0) + (connection?.weight || 1);
+          // Get the current node and neighbor node objects
+          const currentNode = updatedNodes.find(n => n.id === currentId);
+          const neighborNode = updatedNodes.find(n => n.id === neighborId);
+          
+          if (!neighborNode) continue;
+          
+          // Calculate the cost to move to the neighbor node
+          // Include both the connection weight and the neighbor's node value
+          const connectionCost = connection?.weight || 1;
+          const nodeValueCost = neighborNode.value ? parseInt(neighborNode.value) || 0 : 0;
+          
+          // The total cost is the sum of the current g-score, the connection weight, and the neighbor's value
+          const tentativeG = (gScore[currentId] || 0) + connectionCost + nodeValueCost;
 
           if (tentativeG < (gScore[neighborId] || Infinity)) {
             cameFrom[neighborId] = currentId;
             gScore[neighborId] = tentativeG;
 
-            const neighborNode = updatedNodes.find(n => n.id === neighborId);
-            if (!neighborNode) continue;
-
+            // We already have the neighborNode from above
+            // Calculate f-score: g-score + heuristic
             fScore[neighborId] = tentativeG + heuristic(neighborNode, end);
 
             if (!openSet.includes(neighborId)) {
@@ -295,7 +316,11 @@ function App() {
         });
         attempts++;
       }
-      if (validPosition) newNodes.push({ id: `node-${i}`, x, y });
+      if (validPosition) {
+        // Generate a random value between 1 and 10 for each node
+        const value = Math.floor(Math.random() * 10) + 1;
+        newNodes.push({ id: `node-${i}`, x, y, value: value.toString() });
+      }
     }
 
     const maxConnections = Math.min(3, newNodes.length - 1);
@@ -359,11 +384,17 @@ function App() {
         }
         return;
       }
+      if (selectedTool === 'value') {
+        setNodeToEdit(clickedNode.id);
+        setNodeValue(clickedNode.value || '');
+        setShowNodeValueInput(true);
+        return;
+      }
       if (selectedTool === 'start') setStartNode(clickedNode.id);
       else if (selectedTool === 'end') setEndNode(clickedNode.id);
       else if (selectedTool === 'node') setSelectedNode(clickedNode.id);
     } else {
-      const newNode = { id: Date.now().toString(), x, y };
+      const newNode = { id: Date.now().toString(), x, y, value: '' };
       setNodes([...nodes, newNode]);
       if (selectedTool === 'start') setStartNode(newNode.id);
       if (selectedTool === 'end') setEndNode(newNode.id);
@@ -412,6 +443,15 @@ function App() {
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
       ctx.stroke();
+      
+      // Display node value if it exists
+      if (node.value) {
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(node.value, node.x, node.y);
+      }
     });
 
     canvas.style.cursor = selectedTool === 'delete' ? 'pointer' : 'default';
@@ -465,9 +505,10 @@ function App() {
             Generate Maze
           </button>
         </div>
-        
+      
         <div className="tool-group">
           <button className={`tool-button ${selectedTool === 'node' ? 'active' : ''}`} onClick={() => setSelectedTool('node')}>Add Node</button>
+          <button className={`tool-button ${selectedTool === 'value' ? 'active' : ''}`} onClick={() => setSelectedTool('value')}>Set Value</button>
           <button className={`tool-button ${selectedTool === 'start' ? 'active' : ''}`} onClick={() => setSelectedTool('start')}>Set Start</button>
           <button className={`tool-button ${selectedTool === 'end' ? 'active' : ''}`} onClick={() => setSelectedTool('end')}>Set End</button>
           <button className={`tool-button ${selectedTool === 'connect' ? 'active' : ''}`} onClick={() => setSelectedTool('connect')}>Connect</button>
@@ -501,6 +542,32 @@ function App() {
             setShowWeightInput(false);
             setPendingConnection(null);
             setFirstSelectedNode(null);
+          }}>Cancel</button>
+        </div>
+      )}
+      
+      {showNodeValueInput && (
+        <div className="weight-dialog">
+          <input
+            type="text"
+            value={nodeValue}
+            onChange={e => setNodeValue(e.target.value)}
+            placeholder="Enter node value"
+          />
+          <button onClick={() => {
+            if (nodeToEdit) {
+              setNodes(nodes.map(node => 
+                node.id === nodeToEdit ? { ...node, value: nodeValue } : node
+              ));
+            }
+            setShowNodeValueInput(false);
+            setNodeToEdit(null);
+            setNodeValue('');
+          }}>Set Value</button>
+          <button onClick={() => {
+            setShowNodeValueInput(false);
+            setNodeToEdit(null);
+            setNodeValue('');
           }}>Cancel</button>
         </div>
       )}
