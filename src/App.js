@@ -1,19 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
 
-// Node class for A* pathfinding
-class AStarNode {
-  constructor(id, x, y) {
-    this.id = id;
-    this.x = x;
-    this.y = y;
-    this.g = 0;
-    this.h = 0;
-    this.f = 0;
-    this.parent = null;
-  }
-}
-
 function App() {
   const [nodes, setNodes] = useState([]);
   const [connections, setConnections] = useState([]);
@@ -29,8 +16,10 @@ function App() {
   const [visitedNodes, setVisitedNodes] = useState(new Set());
   const [path, setPath] = useState([]);
   const [currentNode, setCurrentNode] = useState(null);
-
+  const [algorithm, setAlgorithm] = useState('astar'); // 'astar', 'bfs', 'dfs'
+  const [isPaused, setIsPaused] = useState(false);
   const canvasRef = useRef(null);
+  const simulationRef = useRef(null);
 
   const heuristic = (nodeA, nodeB) => {
     const dx = nodeA.x - nodeB.x;
@@ -49,160 +38,333 @@ function App() {
     setPath([]);
     setCurrentNode(null);
 
-    const start = nodes.find(n => n.id === startNode);
-    const end = nodes.find(n => n.id === endNode);
+    try {
+      const start = nodes.find(n => n.id === startNode);
+      const end = nodes.find(n => n.id === endNode);
 
-    const updatedNodes = nodes.map(node => ({
-      ...node,
-      gScore: node.id === startNode ? 0 : Infinity,
-      fScore: node.id === startNode ? heuristic(start, end) : Infinity,
-      previousNode: null
-    }));
-
-    const openSet = [startNode];
-    const cameFrom = {};
-    const gScore = { [startNode]: 0 };
-    const fScore = { [startNode]: heuristic(start, end) };
-
-    while (openSet.length > 0) {
-      openSet.sort((a, b) => (fScore[a] || Infinity) - (fScore[b] || Infinity));
-      const currentId = openSet.shift();
-      const current = updatedNodes.find(n => n.id === currentId);
-
-      setCurrentNode(currentId);
-      setVisitedNodes(prev => new Set([...prev, currentId]));
-      await new Promise(resolve => setTimeout(resolve, 50)); // Yield control to browser
-
-      if (currentId === endNode) {
-        const path = [currentId];
-        let currentInPath = currentId;
-        while (cameFrom[currentInPath]) {
-          currentInPath = cameFrom[currentInPath];
-          path.unshift(currentInPath);
-        }
-        setPath(path);
+      if (!start || !end) {
+        alert('Start or end node not found');
         setIsSimulating(false);
         return;
       }
 
-      const neighbors = connections
-        .filter(conn => conn.from === currentId || conn.to === currentId)
-        .map(conn => (conn.from === currentId ? conn.to : conn.from));
+      const updatedNodes = nodes.map(node => ({
+        ...node,
+        gScore: node.id === startNode ? 0 : Infinity,
+        fScore: node.id === startNode ? heuristic(start, end) : Infinity,
+        previousNode: null
+      }));
 
-      for (const neighborId of neighbors) {
-        const connection = connections.find(
-          conn => (conn.from === currentId && conn.to === neighborId) ||
-                  (conn.from === neighborId && conn.to === currentId)
-        );
+      const openSet = [startNode];
+      const cameFrom = {};
+      const gScore = { [startNode]: 0 };
+      const fScore = { [startNode]: heuristic(start, end) };
+      let foundPath = false;
+      const visited = new Set();
 
-        const tentativeGScore = (gScore[currentId] || 0) + (connection?.weight || 1);
+      while (openSet.length > 0 && !foundPath) {
+        openSet.sort((a, b) => (fScore[a] || Infinity) - (fScore[b] || Infinity));
+        const currentId = openSet.shift();
+        const current = updatedNodes.find(n => n.id === currentId);
+        if (!currentId || !current) continue;
 
-        if (tentativeGScore < (gScore[neighborId] || Infinity)) {
-          cameFrom[neighborId] = currentId;
-          gScore[neighborId] = tentativeGScore;
-          fScore[neighborId] = gScore[neighborId] + heuristic(
-            updatedNodes.find(n => n.id === neighborId),
-            end
+        setCurrentNode(currentId);
+        visited.add(currentId);
+        setVisitedNodes(new Set(visited));
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        if (currentId === endNode) {
+          const path = [currentId];
+          let step = currentId;
+          while (cameFrom[step]) {
+            step = cameFrom[step];
+            path.unshift(step);
+          }
+          setPath(path);
+          foundPath = true;
+          break;
+        }
+
+        const neighbors = connections
+          .filter(conn => conn.from === currentId || conn.to === currentId)
+          .map(conn => (conn.from === currentId ? conn.to : conn.from));
+
+        for (const neighborId of neighbors) {
+          const connection = connections.find(
+            conn => (conn.from === currentId && conn.to === neighborId) ||
+                    (conn.from === neighborId && conn.to === currentId)
           );
 
-          if (!openSet.includes(neighborId)) {
-            openSet.push(neighborId);
+          const tentativeG = (gScore[currentId] || 0) + (connection?.weight || 1);
+
+          if (tentativeG < (gScore[neighborId] || Infinity)) {
+            cameFrom[neighborId] = currentId;
+            gScore[neighborId] = tentativeG;
+
+            const neighborNode = updatedNodes.find(n => n.id === neighborId);
+            if (!neighborNode) continue;
+
+            fScore[neighborId] = tentativeG + heuristic(neighborNode, end);
+
+            if (!openSet.includes(neighborId)) {
+              openSet.push(neighborId);
+            }
           }
         }
       }
-    }
 
-    alert('No path found!');
-    setIsSimulating(false);
+      if (!foundPath) alert('No path found!');
+    } catch (error) {
+      console.error('Error during pathfinding:', error);
+      alert('An error occurred during pathfinding.');
+    } finally {
+      setIsSimulating(false);
+      setCurrentNode(null);
+    }
   };
 
+  const runBFS = async () => {
+    if (!startNode || !endNode) {
+      alert('Please set both start and end nodes');
+      return;
+    }
+
+    setIsSimulating(true);
+    setVisitedNodes(new Set());
+    setPath([]);
+    setCurrentNode(null);
+
+    try {
+      const queue = [[startNode]];
+      const visited = new Set([startNode]);
+      let found = false;
+      let currentPath = [];
+
+      while (queue.length > 0 && !found && !isPaused) {
+        currentPath = queue.shift();
+        const currentNodeId = currentPath[currentPath.length - 1];
+        
+        setCurrentNode(currentNodeId);
+        setVisitedNodes(new Set([...visited]));
+        
+        await new Promise(resolve => {
+          simulationRef.current = setTimeout(resolve, 200);
+        });
+
+        if (currentNodeId === endNode) {
+          found = true;
+          setPath(currentPath);
+          break;
+        }
+
+        const neighbors = connections
+          .filter(conn => conn.from === currentNodeId || conn.to === currentNodeId)
+          .map(conn => conn.from === currentNodeId ? conn.to : conn.from)
+          .filter(id => !visited.has(id));
+
+        for (const neighbor of neighbors) {
+          visited.add(neighbor);
+          queue.push([...currentPath, neighbor]);
+        }
+      }
+
+      if (!found && !isPaused) {
+        alert('No path found!');
+      }
+    } catch (error) {
+      console.error('Error during BFS:', error);
+      alert('An error occurred during BFS');
+    } finally {
+      if (!isPaused) {
+        setIsSimulating(false);
+        setCurrentNode(null);
+      }
+    }
+  };
+
+  const runDFS = async () => {
+    if (!startNode || !endNode) {
+      alert('Please set both start and end nodes');
+      return;
+    }
+
+    setIsSimulating(true);
+    setVisitedNodes(new Set());
+    setPath([]);
+    setCurrentNode(null);
+
+    try {
+      const stack = [[startNode]];
+      const visited = new Set([startNode]);
+      let found = false;
+      let currentPath = [];
+
+      while (stack.length > 0 && !found && !isPaused) {
+        currentPath = stack.pop();
+        const currentNodeId = currentPath[currentPath.length - 1];
+        
+        setCurrentNode(currentNodeId);
+        setVisitedNodes(new Set([...visited]));
+        
+        await new Promise(resolve => {
+          simulationRef.current = setTimeout(resolve, 500);
+        });
+
+        if (currentNodeId === endNode) {
+          found = true;
+          setPath(currentPath);
+          break;
+        }
+
+        const neighbors = connections
+          .filter(conn => conn.from === currentNodeId || conn.to === currentNodeId)
+          .map(conn => conn.from === currentNodeId ? conn.to : conn.from)
+          .filter(id => !visited.has(id));
+
+        // Push neighbors in reverse order to visit left-to-right
+        for (let i = neighbors.length - 1; i >= 0; i--) {
+          visited.add(neighbors[i]);
+          stack.push([...currentPath, neighbors[i]]);
+        }
+      }
+
+      if (!found && !isPaused) {
+        alert('No path found!');
+      }
+    } catch (error) {
+      console.error('Error during DFS:', error);
+      alert('An error occurred during DFS');
+    } finally {
+      if (!isPaused) {
+        setIsSimulating(false);
+        setCurrentNode(null);
+      }
+    }
+  };
+
+  const runSelectedAlgorithm = () => {
+    if (algorithm === 'astar') {
+      runAStar();
+    } else if (algorithm === 'bfs') {
+      runBFS();
+    } else if (algorithm === 'dfs') {
+      runDFS();
+    }
+  };
+
+  const pauseSimulation = () => {
+    setIsPaused(true);
+    if (simulationRef.current) {
+      clearTimeout(simulationRef.current);
+    }
+  };
+
+  const resetSimulation = () => {
+    setIsSimulating(false);
+    setIsPaused(false);
+    setVisitedNodes(new Set());
+    setPath([]);
+    setCurrentNode(null);
+    if (simulationRef.current) {
+      clearTimeout(simulationRef.current);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (simulationRef.current) {
+        clearTimeout(simulationRef.current);
+      }
+    };
+  }, []);
+
   const generateRandomMaze = () => {
-    const gridSize = 5;
-    const spacing = 120;
-    const offsetX = 60;
-    const offsetY = 60;
+    const nodeCount = 15, minDistance = 100, maxTries = 1000;
+    const canvasWidth = 800, canvasHeight = 600, margin = 50;
+    const newNodes = [], newConnections = [], connectedPairs = new Set();
 
-    const newNodes = [];
-    const newConnections = [];
+    for (let i = 0; i < nodeCount; i++) {
+      let attempts = 0, validPosition = false, x, y;
+      while (!validPosition && attempts < maxTries) {
+        x = margin + Math.random() * (canvasWidth - 2 * margin);
+        y = margin + Math.random() * (canvasHeight - 2 * margin);
 
-    for (let y = 0; y < gridSize; y++) {
-      for (let x = 0; x < gridSize; x++) {
-        const id = `node-${y}-${x}`;
-        newNodes.push({ id, x: offsetX + x * spacing, y: offsetY + y * spacing });
+        validPosition = newNodes.every(node => {
+          const dx = node.x - x, dy = node.y - y;
+          return Math.sqrt(dx * dx + dy * dy) >= minDistance;
+        });
+        attempts++;
       }
+      if (validPosition) newNodes.push({ id: `node-${i}`, x, y });
     }
 
-    for (let y = 0; y < gridSize; y++) {
-      for (let x = 0; x < gridSize; x++) {
-        const currentId = `node-${y}-${x}`;
-        if (x < gridSize - 1) {
-          const rightId = `node-${y}-${x + 1}`;
-          newConnections.push({ from: currentId, to: rightId, weight: Math.floor(Math.random() * 9) + 1 });
-        }
-        if (y < gridSize - 1) {
-          const downId = `node-${y + 1}-${x}`;
-          newConnections.push({ from: currentId, to: downId, weight: Math.floor(Math.random() * 9) + 1 });
+    const maxConnections = Math.min(3, newNodes.length - 1);
+    newNodes.forEach((node, i) => {
+      const otherNodes = newNodes.filter((_, j) => i !== j).map(n => ({
+        ...n,
+        distance: Math.hypot(n.x - node.x, n.y - node.y)
+      })).sort((a, b) => a.distance - b.distance);
+
+      let connectionsMade = 0;
+      for (const otherNode of otherNodes) {
+        if (connectionsMade >= maxConnections) break;
+        const pairId = [node.id, otherNode.id].sort().join('-');
+        if (!connectedPairs.has(pairId)) {
+          const wouldCross = newConnections.some(conn => {
+            const a = newNodes.find(n => n.id === conn.from);
+            const b = newNodes.find(n => n.id === conn.to);
+            return doLinesIntersect(
+              { x: node.x, y: node.y }, { x: otherNode.x, y: otherNode.y },
+              { x: a.x, y: a.y }, { x: b.x, y: b.y }
+            );
+          });
+          if (!wouldCross) {
+            newConnections.push({ from: node.id, to: otherNode.id, weight: Math.floor(Math.random() * 9) + 1 });
+            connectedPairs.add(pairId);
+            connectionsMade++;
+          }
         }
       }
-    }
+    });
 
     setNodes(newNodes);
     setConnections(newConnections);
-    setStartNode(newNodes[0].id);
-    setEndNode(newNodes[newNodes.length - 1].id);
+    setStartNode(newNodes[0]?.id || null);
+    setEndNode(newNodes[newNodes.length - 1]?.id || null);
     setVisitedNodes(new Set());
     setPath([]);
   };
 
+  const doLinesIntersect = (p1, p2, p3, p4) => {
+    const ccw = (A, B, C) => (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x);
+    return ccw(p1, p3, p4) !== ccw(p2, p3, p4) && ccw(p1, p2, p3) !== ccw(p1, p2, p4);
+  };
+
   const handleCanvasClick = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
     const clickedNode = nodes.find(node => {
-      const dx = node.x - x;
-      const dy = node.y - y;
+      const dx = node.x - x, dy = node.y - y;
       return Math.sqrt(dx * dx + dy * dy) < 20;
     });
 
     if (clickedNode) {
-      if (selectedTool === 'delete') {
-        handleDeleteNode(clickedNode.id);
-        return;
-      }
-
+      if (selectedTool === 'delete') return handleDeleteNode(clickedNode.id);
       if (selectedTool === 'connect') {
-        if (!firstSelectedNode) {
-          setFirstSelectedNode(clickedNode);
-        } else if (firstSelectedNode !== clickedNode) {
-          setPendingConnection({
-            from: firstSelectedNode.id,
-            to: clickedNode.id
-          });
+        if (!firstSelectedNode) return setFirstSelectedNode(clickedNode);
+        if (firstSelectedNode !== clickedNode) {
+          setPendingConnection({ from: firstSelectedNode.id, to: clickedNode.id });
           setShowWeightInput(true);
           setFirstSelectedNode(null);
         }
         return;
       }
-
-      if (selectedTool === 'start') {
-        setStartNode(clickedNode.id);
-      } else if (selectedTool === 'end') {
-        setEndNode(clickedNode.id);
-      } else if (selectedTool === 'node') {
-        setSelectedNode(clickedNode.id);
-      }
+      if (selectedTool === 'start') setStartNode(clickedNode.id);
+      else if (selectedTool === 'end') setEndNode(clickedNode.id);
+      else if (selectedTool === 'node') setSelectedNode(clickedNode.id);
     } else {
-      const newNode = {
-        id: Date.now().toString(),
-        x,
-        y,
-        type: selectedTool === 'start' ? 'start' :
-              selectedTool === 'end' ? 'end' : 'node'
-      };
-
+      const newNode = { id: Date.now().toString(), x, y };
       setNodes([...nodes, newNode]);
-
       if (selectedTool === 'start') setStartNode(newNode.id);
       if (selectedTool === 'end') setEndNode(newNode.id);
       setSelectedNode(newNode.id);
@@ -211,9 +373,7 @@ function App() {
 
   const handleDeleteNode = (nodeId) => {
     setNodes(nodes.filter(node => node.id !== nodeId));
-    setConnections(conns =>
-      conns.filter(conn => conn.from !== nodeId && conn.to !== nodeId)
-    );
+    setConnections(conns => conns.filter(conn => conn.from !== nodeId && conn.to !== nodeId));
     if (startNode === nodeId) setStartNode(null);
     if (endNode === nodeId) setEndNode(null);
   };
@@ -245,24 +405,9 @@ function App() {
       const isVisited = visitedNodes.has(node.id);
       const isInPath = path.includes(node.id);
       const isCurrent = currentNode === node.id;
-
       ctx.beginPath();
       ctx.arc(node.x, node.y, 15, 0, Math.PI * 2);
-
-      if (isCurrent) {
-        ctx.fillStyle = '#ffeb3b';
-      } else if (isInPath) {
-        ctx.fillStyle = '#9c27b0';
-      } else if (isVisited) {
-        ctx.fillStyle = '#ff9800';
-      } else if (node.id === startNode) {
-        ctx.fillStyle = '#4caf50';
-      } else if (node.id === endNode) {
-        ctx.fillStyle = '#f44336';
-      } else {
-        ctx.fillStyle = '#2196f3';
-      }
-
+      ctx.fillStyle = isCurrent ? '#ffeb3b' : isInPath ? '#9c27b0' : isVisited ? '#ff9800' : node.id === startNode ? '#4caf50' : node.id === endNode ? '#f44336' : '#2196f3';
       ctx.fill();
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
@@ -275,26 +420,63 @@ function App() {
   return (
     <div className="app">
       <h1>Node-based Pathfinding Visualizer</h1>
-      <div className="toolbar">
-        <button className={`tool-button ${selectedTool === 'node' ? 'active' : ''}`} onClick={() => setSelectedTool('node')}>Add Node</button>
-        <button className={`tool-button ${selectedTool === 'start' ? 'active' : ''}`} onClick={() => setSelectedTool('start')}>Set Start</button>
-        <button className={`tool-button ${selectedTool === 'end' ? 'active' : ''}`} onClick={() => setSelectedTool('end')}>Set End</button>
-        <button className={`tool-button ${selectedTool === 'connect' ? 'active' : ''}`} onClick={() => setSelectedTool('connect')}>Connect Nodes</button>
-        <button className={`tool-button ${selectedTool === 'delete' ? 'active' : ''}`} onClick={() => setSelectedTool('delete')}>Delete Node</button>
-        <button className="tool-button" onClick={generateRandomMaze}>Generate Maze</button>
-        <button className={`tool-button ${selectedTool === 'simulate' ? 'active' : ''}`} onClick={() => { setSelectedTool('simulate'); runAStar(); }} disabled={isSimulating}>
-          {isSimulating ? 'Simulating...' : 'A* Simulation'}
-        </button>
+<div className="toolbar">
+        <div className="tool-group">
+          <select 
+            value={algorithm} 
+            onChange={(e) => setAlgorithm(e.target.value)}
+            disabled={isSimulating}
+          >
+            <option value="astar">A* Algorithm</option>
+            <option value="bfs">Breadth-First Search</option>
+            <option value="dfs">Depth-First Search</option>
+          </select>
+          
+          <button 
+            className="control-button start"
+            onClick={runSelectedAlgorithm} 
+            disabled={isSimulating || !startNode || !endNode}
+          >
+            {isPaused ? 'Resume' : 'Start Simulation'}
+          </button>
+          
+          {isSimulating && (
+            <button 
+              className="control-button pause"
+              onClick={pauseSimulation}
+            >
+              Pause
+            </button>
+          )}
+          
+          <button 
+            className="control-button reset"
+            onClick={resetSimulation}
+            disabled={!isSimulating && !isPaused}
+          >
+            Reset
+          </button>
+          
+          <button 
+            className="control-button generate"
+            onClick={generateRandomMaze} 
+            disabled={isSimulating}
+          >
+            Generate Maze
+          </button>
+        </div>
+        
+        <div className="tool-group">
+          <button className={`tool-button ${selectedTool === 'node' ? 'active' : ''}`} onClick={() => setSelectedTool('node')}>Add Node</button>
+          <button className={`tool-button ${selectedTool === 'start' ? 'active' : ''}`} onClick={() => setSelectedTool('start')}>Set Start</button>
+          <button className={`tool-button ${selectedTool === 'end' ? 'active' : ''}`} onClick={() => setSelectedTool('end')}>Set End</button>
+          <button className={`tool-button ${selectedTool === 'connect' ? 'active' : ''}`} onClick={() => setSelectedTool('connect')}>Connect</button>
+          <button className={`tool-button ${selectedTool === 'delete' ? 'active' : ''}`} onClick={() => setSelectedTool('delete')}>Delete</button>
+        </div>
       </div>
 
       <div className="canvas-container">
-        <canvas
-          ref={canvasRef}
-          width={800}
-          height={600}
-          onClick={handleCanvasClick}
-          onContextMenu={(e) => e.preventDefault()}
-        />
+        <canvas ref={canvasRef} width={800} height={600} onClick={handleCanvasClick} onContextMenu={e => e.preventDefault()} />
       </div>
 
       {showWeightInput && (
@@ -303,15 +485,12 @@ function App() {
             type="number"
             min="1"
             value={connectionWeight}
-            onChange={(e) => setConnectionWeight(e.target.value)}
+            onChange={e => setConnectionWeight(e.target.value)}
             placeholder="Enter weight"
           />
           <button onClick={() => {
             if (pendingConnection) {
-              setConnections([...connections, {
-                ...pendingConnection,
-                weight: parseInt(connectionWeight) || 1
-              }]);
+              setConnections([...connections, { ...pendingConnection, weight: parseInt(connectionWeight) || 1 }]);
             }
             setShowWeightInput(false);
             setPendingConnection(null);
